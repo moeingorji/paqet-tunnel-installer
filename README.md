@@ -11,6 +11,13 @@ A high-performance **Raw Socket Tunnel** designed to bypass heavy internet censo
 
 ## 🇬🇧 English Guide
 
+### 🛑 STOP & CHECK FIRST (Connectivity Test)
+Before you install anything, you **MUST** ensure your Iran server can "see" your Foreign server.
+1. SSH into your **Iran Server**.
+2. Run: `ping <FOREIGN_SERVER_IP>`
+3. **If the ping fails (Timeout/100% Loss):** DO NOT PROCEED. Your Foreign IP is blocked. You must change your Foreign server.
+4. **If the ping works:** You are good to go! ✅
+
 ### ⚠️ Critical Requirement
 On modern servers (Ubuntu 22.04/24.04), you **must** run these commands first to install the required network library. If you skip this, the service may not start.
 
@@ -53,6 +60,8 @@ To connect your phone or PC:
 
 ## 🇮🇷 راهنمای فارسی
 
+🛑 اول تست کنید! (تست اتصال)
+قبل از هر کاری، باید مطمئن شوید که سرور ایران شما می‌تواند سرور خارج را ببیند. ۱. وارد سرور ایران شوید. ۲. دستور ping <FOREIGN_IP> را بزنید (بجای FOREIGN_IP آی‌پی سرور خارج را بنویسید). ۳. اگر پینگ نداد (Timeout): ادامه ندهید! آی‌پی خارج شما فیلتر است. باید سرور خارج را عوض کنید. ۴. اگر پینگ داد: می‌توانید ادامه دهید. ✅
 ### ⚠️ نکته بسیار مهم (نصب کتابخانه)
 در اکثر سرورهای جدید (مثل Ubuntu 24.04)، برای اجرای صحیح برنامه حتماً باید دستورات زیر را قبل از نصب اجرا کنید:
 
