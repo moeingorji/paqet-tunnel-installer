@@ -1,11 +1,11 @@
 #!/bin/bash
 #
-# Paqet Automated Installer v7.0 (Manual Override)
+# Paqet Automated Installer v9.0 (Alpha & Archive Support)
 #
 # Fixes:
-# - Removes broken Auto-Detection
-# - Asks you for the LINK (Since you have one that works)
-# - Handles .tar.gz extraction automatically
+# - Correctly detects Pre-releases (Alpha/Beta)
+# - Matches exact filenames from your screenshot (linux-amd64)
+# - Auto-extracts .tar.gz archives
 #
 
 # Check if running as root
@@ -15,7 +15,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=================================================="
-echo "      PAQET INSTALLER (Manual Link Mode)          "
+echo "      PAQET AUTOMATED INSTALLER (Auto-Update)     "
 echo "=================================================="
 echo ""
 
@@ -26,55 +26,69 @@ apt install -y curl wget iptables-persistent netfilter-persistent file tar
 # 2. Setup Directories
 mkdir -p /opt/paqet
 cd /opt/paqet
-rm -f paqet paqet.tar.gz  # Clean old junk
+# Remove old files to prevent conflicts
+rm -f paqet paqet_archive.tar.gz
 
-# 3. ASK FOR LINK
-echo "---------------------------------------------------------"
-echo "Paste the working download link for your architecture."
-echo "For Intel/AMD, use the link you found earlier:"
-echo "https://github.com/hanselime/paqet/releases/download/v1.0.0-alpha.12/paqet-linux-amd64-v1.0.0-alpha.12.tar.gz"
-echo "---------------------------------------------------------"
-read -p "Paste Link Here: " DOWNLOAD_URL
+# 3. SMART DOWNLOAD LOGIC
+ARCH=$(uname -m)
+REPO="hanselime/paqet"
+echo "[+] Detected Architecture: $ARCH"
+echo "[+] Searching for newest release (including Alphas)..."
 
-if [ -z "$DOWNLOAD_URL" ]; then
-    echo "❌ No link provided. Exiting."
-    exit 1
+# Fetch ALL releases (not just 'latest') to see Alpha versions
+API_RESPONSE=$(curl -s "https://api.github.com/repos/$REPO/releases")
+
+if [[ "$ARCH" == "x86_64" ]]; then
+    # Look for file containing "linux-amd64" (Matches your screenshot)
+    DOWNLOAD_URL=$(echo "$API_RESPONSE" | grep "browser_download_url" | grep "linux-amd64" | head -n 1 | cut -d '"' -f 4)
+elif [[ "$ARCH" == "aarch64" ]]; then
+    # Look for file containing "linux-arm64"
+    DOWNLOAD_URL=$(echo "$API_RESPONSE" | grep "browser_download_url" | grep "linux-arm64" | head -n 1 | cut -d '"' -f 4)
 fi
 
-echo "[+] Downloading..."
-wget -O paqet_archive.tar.gz "$DOWNLOAD_URL"
+# Fallback: If API fails, use the hardcoded link you found
+if [ -z "$DOWNLOAD_URL" ]; then
+    echo "⚠️ Auto-detect failed (GitHub API rate limit?)."
+    echo "   Using Hardcoded Fallback (v1.0.0-alpha.12)..."
+    if [[ "$ARCH" == "x86_64" ]]; then
+        DOWNLOAD_URL="https://github.com/hanselime/paqet/releases/download/v1.0.0-alpha.12/paqet-linux-amd64-v1.0.0-alpha.12.tar.gz"
+    else
+        DOWNLOAD_URL="https://github.com/hanselime/paqet/releases/download/v1.0.0-alpha.12/paqet-linux-arm64-v1.0.0-alpha.12.tar.gz"
+    fi
+fi
 
-# 4. Extract and Find Binary
-echo "[+] Extracting..."
+echo "[+] Downloading: $DOWNLOAD_URL"
+wget -q --show-progress -O paqet_archive.tar.gz "$DOWNLOAD_URL"
+
+# 4. Extract and Install
+echo "[+] Extracting archive..."
 tar -xzf paqet_archive.tar.gz
 
-# Find the executable file inside the extracted mess
-# We look for any file that is executable and NOT a .tar.gz
+# Find the binary inside the folder
+# We look for an executable file that is NOT the .tar.gz itself
 FOUND_BIN=$(find . -type f -executable ! -name "*.tar.gz" | head -n 1)
 
 if [ -z "$FOUND_BIN" ]; then
-    echo "❌ Error: Could not find the executable file inside the archive."
-    echo "Debug: Listing files..."
-    ls -R
+    echo "❌ Error: Could not find executable file inside the archive."
+    echo "   The download might be corrupted."
     exit 1
 fi
 
-echo "[+] Found binary at: $FOUND_BIN"
+echo "[+] Found binary: $FOUND_BIN"
 mv "$FOUND_BIN" paqet
 chmod +x paqet
 
-# 5. Final Check
-FILE_TYPE=$(file paqet)
-if echo "$FILE_TYPE" | grep -qE "HTML|ASCII|empty"; then
-    echo "❌ CRITICAL: The file is invalid ($FILE_TYPE)."
+# Final Integrity Check
+if file paqet | grep -qE "HTML|ASCII|empty"; then
+    echo "❌ CRITICAL: Extracted file is invalid."
     exit 1
 fi
 
-echo "[+] Binary Installed Successfully!"
+echo "[+] Paqet Installed Successfully!"
 rm -f paqet_archive.tar.gz
 
 # --------------------------------------------------
-# STANDARD SETUP CONTINUES BELOW
+# CONFIGURATION
 # --------------------------------------------------
 
 echo ""
@@ -85,7 +99,7 @@ read -p "Select [1 or 2]: " ROLE
 
 if [ "$ROLE" == "1" ]; then
     # FOREIGN SETUP
-    read -p "Enter a secret password: " TUNNEL_PASS
+    read -p "Enter Tunnel Password: " TUNNEL_PASS
     PORT=443
 
     cat <<EOF > server.yaml
@@ -113,18 +127,14 @@ EOF
 
 elif [ "$ROLE" == "2" ]; then
     # IRAN SETUP
-    read -p "Enter Foreign Server IP: " FOREIGN_IP
-    read -p "Enter Foreign Server Port (Default 443): " FOREIGN_PORT
-    FOREIGN_PORT=${FOREIGN_PORT:-443}
+    read -p "Enter Foreign IP: " FOREIGN_IP
     read -p "Enter Tunnel Password: " TUNNEL_PASS
-    
-    echo "--- SOCKS5 Proxy Setup ---"
-    read -p "Username for App: " PROXY_USER
-    read -p "Password for App: " PROXY_PASS
+    read -p "App Username: " PROXY_USER
+    read -p "App Password: " PROXY_PASS
 
     cat <<EOF > client.yaml
 server:
-  addr: "$FOREIGN_IP:$FOREIGN_PORT"
+  addr: "$FOREIGN_IP:443"
 socks5:
   - listen: "0.0.0.0:1080"
     username: "$PROXY_USER"
