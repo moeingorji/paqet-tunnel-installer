@@ -1,12 +1,12 @@
 #!/bin/bash
 #
-# Paqet Automated Installer v5.0 (Dynamic Updates)
+# Paqet Automated Installer v6.0 (Archive Support)
 # Wrapper script created by [Your Name/Handle]
 #
-# Features:
-# - AUTO-DETECTS latest version using GitHub API (Future-proof)
-# - Handles CPU architecture (AMD64/ARM64)
-# - Verifies download integrity
+# Fixes:
+# - Matches 'linux-amd64' (Hyphen) correctly
+# - AUTO-EXTRACTS .tar.gz archives
+# - Finds the binary inside the archive automatically
 #
 # Original Software: https://github.com/hanselime/paqet
 #
@@ -18,66 +18,86 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=================================================="
-echo "      PAQET AUTOMATED INSTALLER (Dynamic)         "
+echo "      PAQET AUTOMATED INSTALLER (v6.0)            "
 echo "=================================================="
 echo ""
 
 # 1. Install Dependencies
 echo "[+] Installing dependencies..."
 apt update -q
-apt install -y curl wget iptables-persistent netfilter-persistent file
+apt install -y curl wget iptables-persistent netfilter-persistent file tar
 
 # 2. Setup Directories
 mkdir -p /opt/paqet
 cd /opt/paqet
 
-# 3. Dynamic Download Logic
+# 3. Dynamic Download & Extraction Logic
 # --------------------------------------------------
-rm -f paqet # Clean start
+rm -f paqet paqet.tar.gz # Clean start
 
 ARCH=$(uname -m)
-REPO="hanselime/paqet" # The Source Repository
+REPO="hanselime/paqet"
 echo "[+] Detected Architecture: $ARCH"
 echo "[+] Querying GitHub API for latest release of $REPO..."
 
-# Fetch the latest release data from GitHub API
+# Fetch the latest release data
 API_RESPONSE=$(curl -s "https://api.github.com/repos/$REPO/releases/latest")
 
 if [[ "$ARCH" == "x86_64" ]]; then
-    # Filter for 'linux_amd64' inside the JSON response
-    DOWNLOAD_URL=$(echo "$API_RESPONSE" | grep "browser_download_url" | grep "linux_amd64" | cut -d '"' -f 4)
+    # Look for 'linux-amd64' (Hyphen) OR 'linux_amd64' (Underscore)
+    DOWNLOAD_URL=$(echo "$API_RESPONSE" | grep "browser_download_url" | grep -E "linux[-_]amd64" | cut -d '"' -f 4 | head -n 1)
 elif [[ "$ARCH" == "aarch64" ]]; then
-    # Filter for 'linux_arm64'
-    DOWNLOAD_URL=$(echo "$API_RESPONSE" | grep "browser_download_url" | grep "linux_arm64" | cut -d '"' -f 4)
+    # Look for 'linux-arm64' OR 'linux_arm64'
+    DOWNLOAD_URL=$(echo "$API_RESPONSE" | grep "browser_download_url" | grep -E "linux[-_]arm64" | cut -d '"' -f 4 | head -n 1)
 else
     echo "❌ Error: Unsupported Architecture ($ARCH)."
     exit 1
 fi
 
-# Validation: Did we find a URL?
+# Validation
 if [ -z "$DOWNLOAD_URL" ] || echo "$DOWNLOAD_URL" | grep -q "null"; then
-    echo "❌ Error: Could not find a download link for your architecture."
-    echo "   GitHub API might be rate-limited or the repo changed."
-    echo "   Manual Mode: Please paste the download link from: https://github.com/$REPO/releases"
+    echo "❌ Error: Could not auto-detect download link."
+    echo "   Manual Mode: Please paste the .tar.gz download link."
     read -p "Paste URL here: " DOWNLOAD_URL
     if [ -z "$DOWNLOAD_URL" ]; then echo "Exiting."; exit 1; fi
 fi
 
-echo "[+] Found latest version. Downloading from:"
-echo "    $DOWNLOAD_URL"
-curl -L -o paqet "$DOWNLOAD_URL"
+echo "[+] Downloading from: $DOWNLOAD_URL"
+# Download as archive
+curl -L -o paqet_archive.tar.gz "$DOWNLOAD_URL"
 
-# 4. Verify Integrity
+echo "[+] Extracting archive..."
+# Extract the tar.gz
+tar -xzf paqet_archive.tar.gz
+
+# Find the binary inside (It might be named 'paqet' or 'paqet-linux-amd64...')
+# We look for the largest executable file extracted
+EXTRACTED_BIN=$(find . -maxdepth 1 -type f -executable ! -name "*.tar.gz" | sort -rn | head -n 1)
+
+if [ -z "$EXTRACTED_BIN" ]; then
+    # Fallback: Look for file explicitly named 'paqet'
+    if [ -f "paqet" ]; then
+        EXTRACTED_BIN="./paqet"
+    else
+        echo "❌ Extraction Error: Could not find the 'paqet' binary inside the archive."
+        exit 1
+    fi
+fi
+
+# Rename it to standard 'paqet'
+mv "$EXTRACTED_BIN" paqet
+chmod +x paqet
+
+# Final Integrity Check
 FILE_TYPE=$(file paqet)
 if echo "$FILE_TYPE" | grep -qE "HTML|ASCII|empty|text"; then
-    echo "❌ CRITICAL: Download failed (File is text/HTML, not a program)."
-    echo "   The server might be blocking GitHub."
+    echo "❌ CRITICAL: Final binary is not a program."
     rm paqet
     exit 1
 fi
 
-chmod +x paqet
-echo "[+] Binary Verified Successfully."
+echo "[+] Binary Installed Successfully."
+rm -f paqet_archive.tar.gz # Cleanup
 # --------------------------------------------------
 
 # 5. Ask User for Role
