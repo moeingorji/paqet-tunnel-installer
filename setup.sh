@@ -1,26 +1,19 @@
 #!/bin/bash
-#
-# Paqet Automated Installer
-# Wrapper script created by [Your Name/Handle]
+
 #
 # This script automates the installation of Paqet.
 # Original Paqet Core by: https://github.com/parviz-f/paqet
 
-# Wrapper script created by [Your Name/Handle]
-#
 # This script automates the installation of Paqet.
 # Features:
 # - Auto-detects CPU (Intel/AMD vs ARM)
 # - Forces fresh download to fix "Exec format error"
 # - Auto-configures Systemd Service
 # - Optimizes Firewall & MTU for speed
-#
-# Original Paqet Core Software by: https://github.com/parviz-f/paqet
-#
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
-  echo "Please run as root (sudo bash setup.sh)"
+  echo "❌ Please run as root (sudo bash setup.sh)"
   exit
 fi
 
@@ -31,45 +24,64 @@ echo ""
 
 # 1. Install Dependencies
 echo "[+] Installing dependencies..."
-# Update silently (-q) and install necessary tools
 apt update -q
-apt install -y wget iptables-persistent netfilter-persistent file
+apt install -y curl wget iptables-persistent netfilter-persistent file
 
 # 2. Setup Directories
 mkdir -p /opt/paqet
 cd /opt/paqet
 
-# 3. Detect Architecture & Download
-# We FORCE delete old files to prevent "Exec format error" loops
+# 3. Detect Architecture & Download via API
+# We FORCE delete old files to prevent loops
 rm -f paqet
 
 ARCH=$(uname -m)
 echo "[+] Detected System Architecture: $ARCH"
-echo "[+] Downloading fresh Paqet binary..."
-
-echo "[+] Downloading fresh Paqet binary using curl..."
+echo "[+] Fetching latest release from GitHub API..."
 
 if [[ "$ARCH" == "x86_64" ]]; then
-    curl -L -o paqet https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_amd64
+    # Intel/AMD: Fetch the URL containing 'linux_amd64'
+    DOWNLOAD_URL=$(curl -sL https://api.github.com/repos/parviz-f/paqet/releases/latest | grep "browser_download_url" | grep "linux_amd64" | cut -d '"' -f 4)
 elif [[ "$ARCH" == "aarch64" ]]; then
-    curl -L -o paqet https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_arm64
+    # ARM: Fetch the URL containing 'linux_arm64'
+    DOWNLOAD_URL=$(curl -sL https://api.github.com/repos/parviz-f/paqet/releases/latest | grep "browser_download_url" | grep "linux_arm64" | cut -d '"' -f 4)
+else
+    echo "❌ Error: Unsupported Architecture ($ARCH)."
+    exit 1
 fi
 
-# 4. Verify Download
-# If GitHub was blocked or 404, wget might have saved an HTML error page.
-if file paqet | grep -q "HTML"; then
-    echo "❌ Error: Download failed (File is HTML/Text). Check internet connection."
+# Verify we found a URL
+if [ -z "$DOWNLOAD_URL" ]; then
+    echo "❌ Error: Could not find download link via GitHub API."
+    echo "   Using Fallback Method..."
+    # Fallback to direct link guess
+    if [[ "$ARCH" == "x86_64" ]]; then
+        DOWNLOAD_URL="https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_amd64"
+    else
+        DOWNLOAD_URL="https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_arm64"
+    fi
+fi
+
+echo "[+] Downloading from: $DOWNLOAD_URL"
+curl -L -o paqet "$DOWNLOAD_URL"
+
+# 4. Verify Integrity (CRITICAL STEP)
+FILE_TYPE=$(file paqet)
+if echo "$FILE_TYPE" | grep -qE "HTML|ASCII|empty"; then
+    echo "❌ CRITICAL ERROR: Download failed."
+    echo "   The file is text/HTML, not a program."
+    echo "   Debug Info: $FILE_TYPE"
     rm paqet
     exit 1
 fi
 
 chmod +x paqet
-echo "[+] Binary verified."
+echo "[+] Binary Verified Successfully (ELF Executable)."
 
 # 5. Ask User for Role
 echo ""
 echo "Which server is this?"
-echo "  1) Foreign Server (US/Europe/etc) - The Exit Node"
+echo "  1) Foreign Server (Italy/Germany/etc) - The Exit Node"
 echo "  2) Iran Server (Bridge) - The Middle Man"
 read -p "Select [1 or 2]: " ROLE
 
