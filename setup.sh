@@ -1,11 +1,11 @@
 #!/bin/bash
 #
-# Paqet Automated Installer v12.0 (Interactive Network Fix)
+# Paqet Automated Installer v13.0 (Fixed Port Logic)
 #
-# Fixes:
-# - INTERACTIVE: Asks for Interface if auto-detection fails
-# - VERIFICATION: Prints the config to screen so you can check it
-# - Forces the 'network' block (Required for Raw Sockets)
+# Fixes based on your working config:
+# - Forces Client Source Port to 30000 (Critical for Raw Sockets)
+# - Sets MTU to 1200 (Stable)
+# - Adds explicit Firewall rules for Port 30000
 #
 
 # Check if running as root
@@ -15,7 +15,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=================================================="
-echo "      PAQET AUTOMATED INSTALLER (v12.0)           "
+echo "      PAQET AUTOMATED INSTALLER (v13.0)           "
 echo "=================================================="
 echo ""
 
@@ -65,32 +65,26 @@ rm -f paqet_archive.tar.gz
 echo ""
 echo "[+] Detecting Network Details..."
 
-# Detect Interface
 DEFAULT_IFACE=$(ip -4 route show default | awk '{print $5}' | head -n1)
 
-# If detection failed, ASK THE USER
 if [ -z "$DEFAULT_IFACE" ]; then
     echo "⚠️  Could not detect Network Interface automatically."
-    echo "    Run 'ip addr' in another terminal to see your interface name (e.g. eth0, ens3, venet0)."
-    read -p "👉 Enter your Network Interface Name: " DEFAULT_IFACE
+    read -p "👉 Enter your Network Interface Name (e.g. eth0): " DEFAULT_IFACE
 else
     echo "    ✅ Auto-detected Interface: $DEFAULT_IFACE"
     read -p "    Press ENTER to confirm (or type a new name): " USER_IFACE
     if [ ! -z "$USER_IFACE" ]; then DEFAULT_IFACE="$USER_IFACE"; fi
 fi
 
-# Detect IP
 LOCAL_IP=$(ip -4 addr show "$DEFAULT_IFACE" | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n1)
 echo "    ✅ Local IP: $LOCAL_IP"
 
-# Detect Gateway MAC
 GATEWAY_IP=$(ip -4 route show default | awk '{print $3}' | head -n1)
 ping -c 1 -W 1 "$GATEWAY_IP" > /dev/null 2>&1
 GATEWAY_MAC=$(ip neigh show "$GATEWAY_IP" | awk '{print $5}' | head -n1)
 
 if [ -z "$GATEWAY_MAC" ]; then
     echo "⚠️  Warning: Could not detect Gateway MAC."
-    echo "    This is common on VPS like OpenVZ. Using generic broadcast MAC."
     GATEWAY_MAC="ff:ff:ff:ff:ff:ff"
 else
     echo "    ✅ Gateway MAC: $GATEWAY_MAC"
@@ -107,11 +101,12 @@ echo "  2) Iran Server"
 read -p "Select [1 or 2]: " ROLE
 
 if [ "$ROLE" == "1" ]; then
-    # FOREIGN SERVER
+    # ========================
+    # FOREIGN SERVER SETUP
+    # ========================
     read -p "Enter Tunnel Password: " TUNNEL_PASS
     PORT=443
 
-    # Force overwrite
     rm -f server.yaml
     cat <<EOF > server.yaml
 role: server
@@ -126,7 +121,7 @@ transport:
   protocol: "kcp"
   kcp:
     mode: "fast"
-    mtu: 1350
+    mtu: 1200
     sndwnd: 1024
     rcvwnd: 1024
     dshard: 10
@@ -134,18 +129,31 @@ transport:
     block: "aes"
     key: "$TUNNEL_PASS"
 EOF
+
+    # Firewall Rules (Foreign)
+    iptables -t raw -A PREROUTING -p tcp --dport $PORT -j NOTRACK
+    iptables -t raw -A OUTPUT -p tcp --sport $PORT -j NOTRACK
+    # Important: Allow return traffic to random high ports (Raw Socket behavior)
+    iptables -t raw -A PREROUTING -p tcp --sport $PORT -j NOTRACK
+    iptables -t mangle -A OUTPUT -p tcp --sport $PORT --tcp-flags RST RST -j DROP
+    netfilter-persistent save
+
     COMMAND="/opt/paqet/paqet run -c server.yaml"
     CONFIG_FILE="server.yaml"
 
 elif [ "$ROLE" == "2" ]; then
-    # IRAN SERVER
+    # ========================
+    # IRAN SERVER SETUP
+    # ========================
     read -p "Enter Foreign Server IP: " FOREIGN_IP
     read -p "Enter Tunnel Password: " TUNNEL_PASS
     read -p "App Username: " PROXY_USER
     read -p "App Password: " PROXY_PASS
 
-    # Force overwrite
+    CLIENT_SRC_PORT=30000
+
     rm -f client.yaml
+    # FIX: Using fixed port 30000 instead of 0
     cat <<EOF > client.yaml
 role: client
 server:
@@ -157,13 +165,13 @@ socks5:
 network:
   interface: "$DEFAULT_IFACE"
   ipv4:
-    addr: "$LOCAL_IP:0"
+    addr: "$LOCAL_IP:$CLIENT_SRC_PORT"
     router_mac: "$GATEWAY_MAC"
 transport:
   protocol: "kcp"
   kcp:
     mode: "fast"
-    mtu: 1350
+    mtu: 1200
     sndwnd: 1024
     rcvwnd: 1024
     dshard: 10
@@ -171,11 +179,24 @@ transport:
     block: "aes"
     key: "$TUNNEL_PASS"
 EOF
+
+    # Firewall Rules (Iran)
+    iptables -A INPUT -p tcp --dport 1080 -j ACCEPT
+    
+    # CRITICAL FIX: Allow the Fixed Source Port (30000)
+    iptables -t raw -A PREROUTING -p tcp --dport $CLIENT_SRC_PORT -j NOTRACK
+    iptables -t raw -A OUTPUT -p tcp --sport $CLIENT_SRC_PORT -j NOTRACK
+    
+    # MSS Clamping
+    iptables -t mangle -A OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 900
+    iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 900
+    netfilter-persistent save
+
     COMMAND="/opt/paqet/paqet run -c client.yaml"
     CONFIG_FILE="client.yaml"
 fi
 
-# DEBUG: Print Config to Screen
+# DEBUG: Print Config
 echo ""
 echo "------------------------------------------------"
 echo "Checking generated config ($CONFIG_FILE):"
