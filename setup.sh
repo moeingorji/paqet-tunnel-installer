@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Paqet Automated Installer v13.0 (Fixed Port Logic)
+# Paqet Automated Installer v1.0 
 #
 # Fixes based on your working config:
 # - Forces Client Source Port to 30000 (Critical for Raw Sockets)
