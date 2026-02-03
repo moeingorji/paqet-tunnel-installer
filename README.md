@@ -30,7 +30,7 @@ sudo systemctl restart paqet
 Run this command on **BOTH** servers to download the binary and set up the systemd service:
 
 ```bash
-wget -O setup.sh [https://raw.githubusercontent.com/moeingorji/REPO_NAME/main/setup.sh](https://raw.githubusercontent.com/moeingorji/REPO_NAME/main/setup.sh)
+wget -O setup.sh https://raw.githubusercontent.com/moeingorji/paqet-tunnel-installer/main/setup.sh
 sudo bash setup.sh
 ```
 
@@ -71,7 +71,7 @@ sudo systemctl restart paqet
 دستور زیر را در **هر دو سرور** اجرا کنید تا برنامه نصب و سرویس آن به صورت خودکار ساخته شود:
 
 ```bash
-wget -O setup.sh [https://raw.githubusercontent.com/moeingorji/REPO_NAME/main/setup.sh](https://raw.githubusercontent.com/moeingorji/REPO_NAME/main/setup.sh)
+wget -O setup.sh https://raw.githubusercontent.com/moeingorji/paqet-tunnel-installer/main/setup.sh
 sudo bash setup.sh
 ```
 
