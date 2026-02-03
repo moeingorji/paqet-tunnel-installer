@@ -5,10 +5,11 @@
 #
 # This script automates the installation of Paqet.
 # Original Paqet Core by: https://github.com/parviz-f/paqet
+#
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
-  echo "Please run as root (sudo bash setup_paqet.sh)"
+  echo "Please run as root (sudo bash setup.sh)"
   exit
 fi
 
@@ -20,17 +21,38 @@ echo ""
 # 1. Install Dependencies
 echo "[+] Installing dependencies..."
 apt update -q
-apt install -y wget iptables-persistent netfilter-persistent
+apt install -y wget iptables-persistent netfilter-persistent file
 
 # 2. Setup Directories
 mkdir -p /opt/paqet
 cd /opt/paqet
 
-# 3. Download Binary (Auto-detects latest version)
-# Hardcoded to a known working version logic or direct link for stability
+# 3. Detect Architecture & Download
+# This fixes the "Exec format error" by choosing the right file.
+ARCH=$(uname -m)
+echo "[+] Detected System Architecture: $ARCH"
+
 if [ ! -f "paqet" ]; then
     echo "[+] Downloading Paqet..."
-    wget -q --show-progress https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_amd64 -O paqet
+    
+    if [[ "$ARCH" == "x86_64" ]]; then
+        # Standard Intel/AMD Servers
+        wget -q --show-progress https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_amd64 -O paqet
+    elif [[ "$ARCH" == "aarch64" ]]; then
+        # ARM Servers (Oracle Cloud, Raspberry Pi, etc.)
+        wget -q --show-progress https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_arm64 -O paqet
+    else
+        echo "❌ Error: Unsupported Architecture ($ARCH). Please install manually."
+        exit 1
+    fi
+
+    # Verify download wasn't a text error file
+    if file paqet | grep -q "HTML"; then
+        echo "❌ Error: Download failed (File is HTML). Check internet connection."
+        rm paqet
+        exit 1
+    fi
+    
     chmod +x paqet
 else
     echo "[+] Paqet binary already exists. Skipping download."
@@ -76,6 +98,7 @@ EOF
     netfilter-persistent save
 
     COMMAND="/opt/paqet/paqet run -c server.yaml"
+    
     echo ""
     echo "✅ INSTALLATION COMPLETE!"
     echo "Your Server is ready on Port $PORT."
@@ -127,6 +150,7 @@ EOF
     netfilter-persistent save
 
     COMMAND="/opt/paqet/paqet run -c client.yaml"
+    
     echo ""
     echo "✅ INSTALLATION COMPLETE!"
     echo "Your Bridge is ready."
@@ -168,5 +192,6 @@ systemctl restart paqet
 if systemctl is-active --quiet paqet; then
     echo "✅ Service is RUNNING successfully."
 else
-    echo "❌ Service failed to start. Check logs with: sudo journalctl -u paqet -f"
+    echo "❌ Service failed to start. Logs:"
+    journalctl -u paqet -n 5 --no-pager
 fi
