@@ -1,15 +1,14 @@
 #!/bin/bash
-
 #
-# This script automates the installation of Paqet.
-# Original Paqet Core by: https://github.com/parviz-f/paqet
-
-# This script automates the installation of Paqet.
-# Features:
-# - Auto-detects CPU (Intel/AMD vs ARM)
-# - Forces fresh download to fix "Exec format error"
-# - Auto-configures Systemd Service
-# - Optimizes Firewall & MTU for speed
+# Paqet Automated Installer v4.0 (Fixed Repository)
+# Wrapper script created by [Your Name/Handle]
+#
+# Fixes:
+# - Corrected GitHub Repo: hanselime/paqet
+# - Added Fallback to Manual URL entry if download fails
+#
+# Original Paqet Core Software by: https://github.com/hanselime/paqet
+#
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
@@ -31,52 +30,54 @@ apt install -y curl wget iptables-persistent netfilter-persistent file
 mkdir -p /opt/paqet
 cd /opt/paqet
 
-# 3. Detect Architecture & Download via API
-# We FORCE delete old files to prevent loops
-rm -f paqet
+# 3. Download Binary (Corrected URL)
+rm -f paqet # Delete old/broken files
 
 ARCH=$(uname -m)
-echo "[+] Detected System Architecture: $ARCH"
-echo "[+] Fetching latest release from GitHub API..."
+echo "[+] Detected Architecture: $ARCH"
 
+# Define correct download URLs
 if [[ "$ARCH" == "x86_64" ]]; then
-    # Intel/AMD: Fetch the URL containing 'linux_amd64'
-    DOWNLOAD_URL=$(curl -sL https://api.github.com/repos/parviz-f/paqet/releases/latest | grep "browser_download_url" | grep "linux_amd64" | cut -d '"' -f 4)
+    # Standard Intel/AMD
+    URL="https://github.com/hanselime/paqet/releases/latest/download/paqet_linux_amd64"
 elif [[ "$ARCH" == "aarch64" ]]; then
-    # ARM: Fetch the URL containing 'linux_arm64'
-    DOWNLOAD_URL=$(curl -sL https://api.github.com/repos/parviz-f/paqet/releases/latest | grep "browser_download_url" | grep "linux_arm64" | cut -d '"' -f 4)
+    # ARM 64-bit
+    URL="https://github.com/hanselime/paqet/releases/latest/download/paqet_linux_arm64"
 else
     echo "❌ Error: Unsupported Architecture ($ARCH)."
     exit 1
 fi
 
-# Verify we found a URL
-if [ -z "$DOWNLOAD_URL" ]; then
-    echo "❌ Error: Could not find download link via GitHub API."
-    echo "   Using Fallback Method..."
-    # Fallback to direct link guess
-    if [[ "$ARCH" == "x86_64" ]]; then
-        DOWNLOAD_URL="https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_amd64"
+echo "[+] Downloading from: $URL"
+curl -L -o paqet "$URL"
+
+# 4. Verify Download (Critical Check)
+FILE_TYPE=$(file paqet)
+if echo "$FILE_TYPE" | grep -qE "HTML|ASCII|empty|text"; then
+    echo ""
+    echo "❌ DOWNLOAD FAILED: The repository link might be blocked or changed."
+    echo "---------------------------------------------------------"
+    echo "   Please paste a valid download link for 'paqet' binary."
+    echo "   (You can find it on the official releases page)"
+    echo "---------------------------------------------------------"
+    read -p "Paste URL here: " MANUAL_URL
+    
+    if [ ! -z "$MANUAL_URL" ]; then
+        curl -L -o paqet "$MANUAL_URL"
     else
-        DOWNLOAD_URL="https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_arm64"
+        echo "❌ No URL provided. Exiting."
+        exit 1
     fi
 fi
 
-echo "[+] Downloading from: $DOWNLOAD_URL"
-curl -L -o paqet "$DOWNLOAD_URL"
-
-# 4. Verify Integrity (CRITICAL STEP)
-FILE_TYPE=$(file paqet)
-if echo "$FILE_TYPE" | grep -qE "HTML|ASCII|empty"; then
-    echo "❌ CRITICAL ERROR: Download failed."
-    echo "   The file is text/HTML, not a program."
-    echo "   Debug Info: $FILE_TYPE"
-    rm paqet
+# Verify again after manual input
+if file paqet | grep -qE "HTML|ASCII|empty|text"; then
+    echo "❌ CRITICAL: File is still not a program. Installation Aborted."
     exit 1
 fi
 
 chmod +x paqet
-echo "[+] Binary Verified Successfully (ELF Executable)."
+echo "[+] Binary Verified Successfully."
 
 # 5. Ask User for Role
 echo ""
