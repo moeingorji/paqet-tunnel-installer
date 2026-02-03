@@ -5,6 +5,17 @@
 #
 # This script automates the installation of Paqet.
 # Original Paqet Core by: https://github.com/parviz-f/paqet
+
+# Wrapper script created by [Your Name/Handle]
+#
+# This script automates the installation of Paqet.
+# Features:
+# - Auto-detects CPU (Intel/AMD vs ARM)
+# - Forces fresh download to fix "Exec format error"
+# - Auto-configures Systemd Service
+# - Optimizes Firewall & MTU for speed
+#
+# Original Paqet Core Software by: https://github.com/parviz-f/paqet
 #
 
 # Check if running as root
@@ -20,6 +31,7 @@ echo ""
 
 # 1. Install Dependencies
 echo "[+] Installing dependencies..."
+# Update silently (-q) and install necessary tools
 apt update -q
 apt install -y wget iptables-persistent netfilter-persistent file
 
@@ -28,40 +40,39 @@ mkdir -p /opt/paqet
 cd /opt/paqet
 
 # 3. Detect Architecture & Download
-# This fixes the "Exec format error" by choosing the right file.
+# We FORCE delete old files to prevent "Exec format error" loops
+rm -f paqet
+
 ARCH=$(uname -m)
 echo "[+] Detected System Architecture: $ARCH"
+echo "[+] Downloading fresh Paqet binary..."
 
-if [ ! -f "paqet" ]; then
-    echo "[+] Downloading Paqet..."
-    
-    if [[ "$ARCH" == "x86_64" ]]; then
-        # Standard Intel/AMD Servers
-        wget -q --show-progress https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_amd64 -O paqet
-    elif [[ "$ARCH" == "aarch64" ]]; then
-        # ARM Servers (Oracle Cloud, Raspberry Pi, etc.)
-        wget -q --show-progress https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_arm64 -O paqet
-    else
-        echo "❌ Error: Unsupported Architecture ($ARCH). Please install manually."
-        exit 1
-    fi
-
-    # Verify download wasn't a text error file
-    if file paqet | grep -q "HTML"; then
-        echo "❌ Error: Download failed (File is HTML). Check internet connection."
-        rm paqet
-        exit 1
-    fi
-    
-    chmod +x paqet
+if [[ "$ARCH" == "x86_64" ]]; then
+    # Standard Intel/AMD Servers
+    wget -q --show-progress https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_amd64 -O paqet
+elif [[ "$ARCH" == "aarch64" ]]; then
+    # ARM Servers (Oracle Cloud, Raspberry Pi, etc.)
+    wget -q --show-progress https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_arm64 -O paqet
 else
-    echo "[+] Paqet binary already exists. Skipping download."
+    echo "❌ Error: Unsupported Architecture ($ARCH). Please install manually."
+    exit 1
 fi
 
-# 4. Ask User for Role
+# 4. Verify Download
+# If GitHub was blocked or 404, wget might have saved an HTML error page.
+if file paqet | grep -q "HTML"; then
+    echo "❌ Error: Download failed (File is HTML/Text). Check internet connection."
+    rm paqet
+    exit 1
+fi
+
+chmod +x paqet
+echo "[+] Binary verified."
+
+# 5. Ask User for Role
 echo ""
 echo "Which server is this?"
-echo "  1) Foreign Server (Italy/Germany/etc) - The Exit Node"
+echo "  1) Foreign Server (US/Europe/etc) - The Exit Node"
 echo "  2) Iran Server (Bridge) - The Middle Man"
 read -p "Select [1 or 2]: " ROLE
 
@@ -161,7 +172,7 @@ else
     exit 1
 fi
 
-# 5. Create Systemd Service
+# 6. Create Systemd Service
 echo "[+] Creating Background Service..."
 cat <<EOF > /etc/systemd/system/paqet.service
 [Unit]
@@ -182,7 +193,7 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 EOF
 
-# 6. Start Service
+# 7. Start Service
 echo "[+] Starting Service..."
 systemctl daemon-reload
 systemctl enable paqet
@@ -193,5 +204,5 @@ if systemctl is-active --quiet paqet; then
     echo "✅ Service is RUNNING successfully."
 else
     echo "❌ Service failed to start. Logs:"
-    journalctl -u paqet -n 5 --no-pager
+    journalctl -u paqet -n 10 --no-pager
 fi
