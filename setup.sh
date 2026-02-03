@@ -1,11 +1,11 @@
 #!/bin/bash
 #
-# Paqet Automated Installer v11.0 (Raw Socket Fix)
+# Paqet Automated Installer v12.0 (Interactive Network Fix)
 #
 # Fixes:
-# - Auto-detects Network Interface (eth0/ens3)
-# - Auto-detects Local IP & Gateway MAC (Required for Raw Sockets)
-# - Generates valid 'network' block in config
+# - INTERACTIVE: Asks for Interface if auto-detection fails
+# - VERIFICATION: Prints the config to screen so you can check it
+# - Forces the 'network' block (Required for Raw Sockets)
 #
 
 # Check if running as root
@@ -15,7 +15,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=================================================="
-echo "      PAQET AUTOMATED INSTALLER (v11.0)           "
+echo "      PAQET AUTOMATED INSTALLER (v12.0)           "
 echo "=================================================="
 echo ""
 
@@ -28,7 +28,7 @@ mkdir -p /opt/paqet
 cd /opt/paqet
 rm -f paqet paqet_archive.tar.gz
 
-# 3. DOWNLOAD LOGIC (Alpha Support)
+# 3. DOWNLOAD LOGIC
 ARCH=$(uname -m)
 REPO="hanselime/paqet"
 echo "[+] Detected Architecture: $ARCH"
@@ -41,6 +41,7 @@ elif [[ "$ARCH" == "aarch64" ]]; then
     DOWNLOAD_URL=$(echo "$API_RESPONSE" | grep "browser_download_url" | grep "linux-arm64" | head -n 1 | cut -d '"' -f 4)
 fi
 
+# Fallback
 if [ -z "$DOWNLOAD_URL" ]; then
     echo "⚠️ Auto-detect failed. Using Fallback..."
     if [[ "$ARCH" == "x86_64" ]]; then
@@ -52,40 +53,47 @@ fi
 
 echo "[+] Downloading: $DOWNLOAD_URL"
 wget -q --show-progress -O paqet_archive.tar.gz "$DOWNLOAD_URL"
-
-echo "[+] Extracting..."
 tar -xzf paqet_archive.tar.gz
 FOUND_BIN=$(find . -type f -executable ! -name "*.tar.gz" | head -n 1)
-if [ -z "$FOUND_BIN" ]; then echo "❌ Extraction failed."; exit 1; fi
 mv "$FOUND_BIN" paqet
 chmod +x paqet
 rm -f paqet_archive.tar.gz
 
 # --------------------------------------------------
-# SMART NETWORK DETECTION (CRITICAL FOR PAQET)
+# NETWORK DETECTION (INTERACTIVE)
 # --------------------------------------------------
+echo ""
 echo "[+] Detecting Network Details..."
 
-# 1. Detect Default Interface
-DEFAULT_IFACE=$(ip route | grep default | awk '{print $5}' | head -n1)
-echo "    Interface: $DEFAULT_IFACE"
+# Detect Interface
+DEFAULT_IFACE=$(ip -4 route show default | awk '{print $5}' | head -n1)
 
-# 2. Detect Local IP of that Interface
+# If detection failed, ASK THE USER
+if [ -z "$DEFAULT_IFACE" ]; then
+    echo "⚠️  Could not detect Network Interface automatically."
+    echo "    Run 'ip addr' in another terminal to see your interface name (e.g. eth0, ens3, venet0)."
+    read -p "👉 Enter your Network Interface Name: " DEFAULT_IFACE
+else
+    echo "    ✅ Auto-detected Interface: $DEFAULT_IFACE"
+    read -p "    Press ENTER to confirm (or type a new name): " USER_IFACE
+    if [ ! -z "$USER_IFACE" ]; then DEFAULT_IFACE="$USER_IFACE"; fi
+fi
+
+# Detect IP
 LOCAL_IP=$(ip -4 addr show "$DEFAULT_IFACE" | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n1)
-echo "    Local IP:  $LOCAL_IP"
+echo "    ✅ Local IP: $LOCAL_IP"
 
-# 3. Detect Gateway IP & MAC
-GATEWAY_IP=$(ip route | grep default | awk '{print $3}' | head -n1)
-# Ping gateway once to ensure it's in ARP table
+# Detect Gateway MAC
+GATEWAY_IP=$(ip -4 route show default | awk '{print $3}' | head -n1)
 ping -c 1 -W 1 "$GATEWAY_IP" > /dev/null 2>&1
 GATEWAY_MAC=$(ip neigh show "$GATEWAY_IP" | awk '{print $5}' | head -n1)
 
 if [ -z "$GATEWAY_MAC" ]; then
-    echo "⚠️ Warning: Could not detect Gateway MAC automatically."
-    echo "   Using a generic broadcast MAC (might work, might not)."
+    echo "⚠️  Warning: Could not detect Gateway MAC."
+    echo "    This is common on VPS like OpenVZ. Using generic broadcast MAC."
     GATEWAY_MAC="ff:ff:ff:ff:ff:ff"
 else
-    echo "    Gateway MAC: $GATEWAY_MAC"
+    echo "    ✅ Gateway MAC: $GATEWAY_MAC"
 fi
 
 # --------------------------------------------------
@@ -103,7 +111,8 @@ if [ "$ROLE" == "1" ]; then
     read -p "Enter Tunnel Password: " TUNNEL_PASS
     PORT=443
 
-    # FIX: Added 'network' block with detected values
+    # Force overwrite
+    rm -f server.yaml
     cat <<EOF > server.yaml
 role: server
 listen:
@@ -125,14 +134,8 @@ transport:
     block: "aes"
     key: "$TUNNEL_PASS"
 EOF
-
-    # Raw socket firewall rules (Critical)
-    iptables -t raw -A PREROUTING -p tcp --dport $PORT -j NOTRACK
-    iptables -t raw -A OUTPUT -p tcp --sport $PORT -j NOTRACK
-    iptables -t mangle -A OUTPUT -p tcp --sport $PORT --tcp-flags RST RST -j DROP
-    netfilter-persistent save
-
     COMMAND="/opt/paqet/paqet run -c server.yaml"
+    CONFIG_FILE="server.yaml"
 
 elif [ "$ROLE" == "2" ]; then
     # IRAN SERVER
@@ -141,7 +144,8 @@ elif [ "$ROLE" == "2" ]; then
     read -p "App Username: " PROXY_USER
     read -p "App Password: " PROXY_PASS
 
-    # FIX: Added 'network' block (Client uses port 0 for random src port)
+    # Force overwrite
+    rm -f client.yaml
     cat <<EOF > client.yaml
 role: client
 server:
@@ -167,15 +171,17 @@ transport:
     block: "aes"
     key: "$TUNNEL_PASS"
 EOF
-
-    iptables -A INPUT -p tcp --dport 1080 -j ACCEPT
-    # MSS Clamping
-    iptables -t mangle -A OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 900
-    iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 900
-    netfilter-persistent save
-
     COMMAND="/opt/paqet/paqet run -c client.yaml"
+    CONFIG_FILE="client.yaml"
 fi
+
+# DEBUG: Print Config to Screen
+echo ""
+echo "------------------------------------------------"
+echo "Checking generated config ($CONFIG_FILE):"
+cat $CONFIG_FILE
+echo "------------------------------------------------"
+echo ""
 
 # Service Creation
 cat <<EOF > /etc/systemd/system/paqet.service
