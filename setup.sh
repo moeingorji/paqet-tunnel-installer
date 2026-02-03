@@ -47,15 +47,12 @@ ARCH=$(uname -m)
 echo "[+] Detected System Architecture: $ARCH"
 echo "[+] Downloading fresh Paqet binary..."
 
+echo "[+] Downloading fresh Paqet binary using curl..."
+
 if [[ "$ARCH" == "x86_64" ]]; then
-    # Standard Intel/AMD Servers
-    wget -q --show-progress https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_amd64 -O paqet
+    curl -L -o paqet https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_amd64
 elif [[ "$ARCH" == "aarch64" ]]; then
-    # ARM Servers (Oracle Cloud, Raspberry Pi, etc.)
-    wget -q --show-progress https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_arm64 -O paqet
-else
-    echo "❌ Error: Unsupported Architecture ($ARCH). Please install manually."
-    exit 1
+    curl -L -o paqet https://github.com/parviz-f/paqet/releases/latest/download/paqet_linux_arm64
 fi
 
 # 4. Verify Download
