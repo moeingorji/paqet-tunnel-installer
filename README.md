@@ -18,5 +18,5 @@ It handles everything automatically:
 Run this command on **BOTH** servers:
 
 ```bash
-wget -O setup.sh [https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/paqet-tunnel-installer/main/setup.sh](https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/paqet-tunnel-installer/main/setup.sh)
+wget -O setup.sh https://raw.githubusercontent.com/moeingorji/paqet-tunnel-installer/main/setup.sh
 sudo bash setup.sh
