@@ -1,22 +1,20 @@
 # 🚀 Paqet Tunnel Automated Installer
 
-This is a simple bash script to automate the setup of **[Paqet](https://github.com/parviz-f/paqet)**, a high-speed censorship bypass tunnel based on KCP.
+[![Bash](https://img.shields.io/badge/Language-Bash-4EAA25?style=flat-square&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
+[![Systemd](https://img.shields.io/badge/Service-Systemd-e0115f?style=flat-square&logo=systemd&logoColor=white)]()
 
-It handles everything automatically:
-- ✅ Installs dependencies
-- ✅ Configures the Server (Foreign VPS)
-- ✅ Configures the Client (Iran/Bridge VPS)
-- ✅ Sets up Systemd Service (Auto-start on boot)
-- ✅ Optimizes Network (MTU, Window Size, Firewall)
+**[English](#-english-guide) | [فارسی](#-راهنمای-فارسی)**
 
-## 📋 Prerequisites
-- **Server A (Foreign):** Ubuntu/Debian VPS (e.g., Italy, Germany)
-- **Server B (Iran):** Ubuntu/Debian VPS (e.g., ParsVDS)
+A high-performance **Raw Socket Tunnel** designed to bypass heavy internet censorship. Paqet uses low-level packet injection to establish a stable connection between a restricted server (Bridge) and a free server (Upstream).
 
-## ⚡ Quick Start
+---
 
-Run this command on **BOTH** servers:
+## 🇬🇧 English Guide
+
+### ⚠️ Critical Requirement (Fix for "Shared Object" Error)
+On many modern servers (Ubuntu 22.04/24.04), you **must** install the packet capture library before or immediately after installing Paqet. If the service fails to start, run this:
 
 ```bash
-wget -O setup.sh https://raw.githubusercontent.com/moeingorji/paqet-tunnel-installer/main/setup.sh
-sudo bash setup.sh
+sudo apt update
+sudo apt install -y libpcap-dev
+sudo systemctl restart paqet
